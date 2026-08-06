@@ -19,8 +19,8 @@ const {
   editUserAccount,
 } = require("../controllers/userController");
 
-router.post("/signup", signUp);
-router.post("/login", login);
+router.post("/auth/signup", signUp);
+router.post("/auth/login", login);
 router.patch("/update-user-role", updateUserRole);
 router.get("/getalluser", getAllUser);
 router.post("/deleteuser", deleteUser);

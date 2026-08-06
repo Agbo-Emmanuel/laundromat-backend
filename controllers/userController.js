@@ -28,12 +28,11 @@ exports.signUp = async (req, res) => {
       });
     }
 
-    // Validate user input using Joi or another validator
-    try {
-      await validation.validateAsync(req.body);
-    } catch (validationError) {
-      return res.status(400).json({ message: validationError.message });
-    }
+    // try {
+    //   await validation.validateAsync(req.body);
+    // } catch (validationError) {
+    //   return res.status(400).json({ message: validationError.message });
+    // }
 
     // Check if the user already exists
     const userExists = await myModel.findOne({ email });
@@ -47,43 +46,33 @@ exports.signUp = async (req, res) => {
     // Hash password
     const salt = bcrypt.genSaltSync(10);
     const hash = bcrypt.hashSync(password, salt);
-    // const verificationToken = bcrypt.hashSync("verify-token", salt);
+
     const verificationToken = jwt.sign({ email }, process.env.SECRET, {
       expiresIn: "1d",
-    }); // Using JWT to generate the token
+    });
 
-    // Create the user
     const user = await myModel.create({
       fullName,
-      userName,
       email,
       phoneNumber,
       password: hash,
       accntBalance: 0,
-      totalDeposit: 0,
-      totalProfit: 0,
-      isAdmin: false,
+      role: "worker",
       isVerified: false,
-      isKycVerified: false,
-      transactions: [],
-      plan: [],
       token: verificationToken,
     });
 
-    // Prepare email placeholders
     const placeholders = {
       "{{ fullName }}": user.fullName,
-      "{{ verification_link }}": `${process.env.SERVER_URL}/api/v1/verify-email?token=${verificationToken}&email=${user.email}`,
+      "{{ verification_link }}": `${process.env.SERVER_URL}/api/verify-email?token=${verificationToken}&email=${user.email}`,
     };
 
-    await sendEmail(
-      user.email,
-      "Welcome to BlackFinance",
-      "signUp",
-      placeholders,
-    );
-
-    // Generate JWT token for the user
+    // await sendEmail(
+    //   user.email,
+    //   "Welcome to Laundromat",
+    //   "signUp",
+    //   placeholders,
+    // );
     const token = jwt.sign(
       {
         userId: user._id,
@@ -104,23 +93,17 @@ exports.signUp = async (req, res) => {
       user: {
         _id: user._id,
         fullName: user.fullName,
-        userName: user.userName,
         email: user.email,
         phoneNumber: user.phoneNumber,
         accntBalance: user.accntBalance,
-        totalDeposit: user.totalDeposit,
-        totalProfit: user.totalProfit,
-        isAdmin: user.isAdmin,
+        role: user.role,
         isVerified: user.isVerified,
-        isKycVerified: user.isKycVerified,
-        transactions: user.transactions,
-        plan: user.plan,
       },
     };
 
     // Send success response
     res.status(201).json({
-      message: `Welcome, ${user.userName}. check your email for verification`,
+      message: `Welcome, ${user.fullName}. check your email for verification`,
       data: userDetails,
     });
   } catch (err) {
@@ -163,7 +146,7 @@ exports.verifyEmail = async (req, res) => {
       "{{ fullName }}": user.fullName, // Customize as needed
     };
 
-    await sendEmail(email, "Welcome to Finfrevia", "welcome", placeholders);
+    await sendEmail(email, "Welcome to Laundromat", "welcome", placeholders);
 
     // Redirect the user to the login page
     res.redirect(`${process.env.CLIENT_URL}/login`);
@@ -516,52 +499,6 @@ exports.sendMailToAdmin = async (req, res) => {
     console.error("Error in /send-email:", err);
     res.status(500).json({ error: "Failed to send email." });
   }
-};
-
-// Function to create a countdown for a specific plan
-// const startCountdownForPlan = async (userId,planId) => {
-//     const user = await myModel.findById(userId);
-//     const Plan = user.plan.id(planId);
-//     cron.schedule('0 0 * * *', async () => { // Runs every day at midnight
-//         const plan = await Plan.findOne({ _id: planId, isActive: true });
-
-//         if (plan && plan.remainingDays > 0) {
-//             plan.remainingDays -= 1;
-//             if (plan.remainingDays === 0) {
-//                 plan.isActive = false; // Deactivate plan when countdown reaches zero
-//             }
-//             await plan.save();
-//             console.log(`Updated remainingDays for plan ${planId}`);
-//         } else {
-//             // If plan is inactive or does not exist, stop this cron job
-//             this.stop();
-//         }
-//     });
-// };
-
-const startCountdownForPlan = async (userId, planId) => {
-  const user = await myModel.findById(userId);
-  const plan = user.plan.id(planId);
-
-  if (!plan) {
-    console.log(`Plan with id ${planId} not found for user ${userId}`);
-    return;
-  }
-
-  const job = cron.schedule("0 0 * * *", async () => {
-    // Runs every day at midnight
-    if (plan.isActive && plan.remainingDays > 0) {
-      plan.remainingDays -= 1;
-      if (plan.remainingDays === 0) {
-        plan.isActive = false; // Deactivate plan when countdown reaches zero
-      }
-      await user.save();
-      console.log(`Updated remainingDays for plan ${planId}`);
-    } else {
-      console.log(`Stopping cron job for plan ${planId}`);
-      job.stop(); // Stop the job if plan is inactive or remainingDays is zero
-    }
-  });
 };
 
 exports.sendResetPassword = async (req, res) => {

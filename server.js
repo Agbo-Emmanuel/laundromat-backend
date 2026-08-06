@@ -34,7 +34,7 @@ app.use(
 
 app.use(express.json());
 
-app.use("/api/v1", router);
+app.use("/api", router);
 
 const port = process.env.PORT || 5001;
 
