@@ -11,6 +11,14 @@ const {
 } = require("../utils/mailer");
 
 const crypto = require("crypto");
+const mongoose = require("mongoose");
+
+const ALLOWED_STATUSES = [
+  "pending",
+  "completed",
+  "in-progress",
+  "awaiting-pickup",
+];
 
 // Generates a 6-character alphanumeric code (uppercase letters + digits)
 const generateOrderCode = () => {
@@ -114,19 +122,12 @@ exports.getAllOrders = async (req, res) => {
   try {
     const { status } = req.query;
 
-    const allowedStatuses = [
-      "pending",
-      "completed",
-      "in-progress",
-      "awaiting-pickup",
-    ];
-
     const filter = {};
 
     if (status) {
-      if (!allowedStatuses.includes(status)) {
+      if (!ALLOWED_STATUSES.includes(status)) {
         return res.status(400).json({
-          message: `Invalid status. Allowed values are: ${allowedStatuses.join(", ")}`,
+          message: `Invalid status. Allowed values are: ${ALLOWED_STATUSES.join(", ")}`,
         });
       }
       filter.status = status;
@@ -134,12 +135,99 @@ exports.getAllOrders = async (req, res) => {
 
     const orders = await orderModel.find(filter);
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "All orders fetched successfully",
       data: orders,
     });
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
+      message: err.message,
+    });
+  }
+};
+
+exports.getOrderById = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    if (!orderId) {
+      return res.status(400).json({
+        message: "order id is required",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        message: "invalid order id",
+      });
+    }
+
+    const order = await orderModel.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        message: "order not found",
+      });
+    }
+
+    return res.status(200).json({
+      message: "order fetched successfully",
+      data: order,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      message: err.message,
+    });
+  }
+};
+
+exports.updateOrderStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { status } = req.body;
+
+    if (!orderId) {
+      return res.status(400).json({
+        message: "order id is required",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({
+        message: "invalid order id",
+      });
+    }
+
+    if (!status) {
+      return res.status(400).json({
+        message: "status is required",
+      });
+    }
+
+    if (!ALLOWED_STATUSES.includes(status)) {
+      return res.status(400).json({
+        message: `Invalid status. Allowed values are: ${ALLOWED_STATUSES.join(", ")}`,
+      });
+    }
+
+    const order = await orderModel.findByIdAndUpdate(
+      orderId,
+      { status },
+      { new: true, runValidators: true },
+    );
+
+    if (!order) {
+      return res.status(404).json({
+        message: "order not found",
+      });
+    }
+
+    return res.status(200).json({
+      message: `order status updated to ${status} successfully`,
+      data: order,
+    });
+  } catch (err) {
+    return res.status(500).json({
       message: err.message,
     });
   }
