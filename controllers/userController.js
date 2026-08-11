@@ -1,4 +1,5 @@
 const myModel = require("../models/userModel");
+const orderModel = require("../models/orderModel");
 const bcrypt = require("bcryptjs");
 const validation = require("../validation/validation");
 const jwt = require("jsonwebtoken");
@@ -27,12 +28,6 @@ exports.signUp = async (req, res) => {
         message: "Password and confirm password do not match",
       });
     }
-
-    // try {
-    //   await validation.validateAsync(req.body);
-    // } catch (validationError) {
-    //   return res.status(400).json({ message: validationError.message });
-    // }
 
     // Check if the user already exists
     const userExists = await myModel.findOne({ email });
@@ -669,4 +664,173 @@ exports.editUserAccount = async (req, res) => {
       res.status(500).json({ message: "Server error", error: err.message });
     }
   });
+};
+
+// ─── Worker Dashboard Stats ───────────────────────────────────────────────────
+exports.getWorkerDashboardStats = async (req, res) => {
+  try {
+    const rToken = req.headers.authorization?.split(" ")[1];
+    if (!rToken) {
+      return res.status(401).json({ message: "No token provided" });
+    }
+
+    const decoded = jwt.verify(rToken, process.env.SECRET);
+    const worker = await myModel.findById(decoded.userId);
+    if (!worker) {
+      return res.status(404).json({ message: "Worker not found" });
+    }
+
+    const [totalOrders, pendingOrders, completedOrders] = await Promise.all([
+      orderModel.countDocuments(),
+      orderModel.countDocuments({ status: "pending" }),
+      orderModel.countDocuments({ status: "completed" }),
+    ]);
+
+    return res.status(200).json({
+      message: "Worker dashboard stats fetched successfully",
+      data: {
+        totalOrders,
+        pendingOrders,
+        completedOrders,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+// ─── Admin Dashboard Stats ────────────────────────────────────────────────────
+exports.getAdminDashboardStats = async (req, res) => {
+  try {
+    const rToken = req.headers.authorization?.split(" ")[1];
+    if (!rToken) {
+      return res.status(401).json({ message: "No token provided" });
+    }
+
+    const decoded = jwt.verify(rToken, process.env.SECRET);
+    const admin = await myModel.findById(decoded.userId);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    // Core counts
+    const [totalOrders, pendingOrders, completedOrders, totalWorkers] =
+      await Promise.all([
+        orderModel.countDocuments(),
+        orderModel.countDocuments({ status: "pending" }),
+        orderModel.countDocuments({ status: "completed" }),
+        myModel.countDocuments({ role: "worker" }),
+      ]);
+
+    // Total balance across all workers
+    const balanceAgg = await myModel.aggregate([
+      { $match: { role: "worker" } },
+      { $group: { _id: null, totalBalance: { $sum: "$accntBalance" } } },
+    ]);
+    const totalBalance = balanceAgg.length > 0 ? balanceAgg[0].totalBalance : 0;
+
+    // ── Monthly revenue trend (last 12 months) ──
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
+    twelveMonthsAgo.setDate(1);
+    twelveMonthsAgo.setHours(0, 0, 0, 0);
+
+    const monthlyTrend = await orderModel.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: twelveMonthsAgo },
+          status: "completed",
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+          },
+          revenue: { $sum: "$price" },
+          orderCount: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1 } },
+      {
+        $project: {
+          _id: 0,
+          year: "$_id.year",
+          month: "$_id.month",
+          revenue: 1,
+          orderCount: 1,
+          label: {
+            $concat: [
+              {
+                $arrayElemAt: [
+                  [
+                    "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+                  ],
+                  "$_id.month",
+                ],
+              },
+              " ",
+              { $substr: [{ $toString: "$_id.year" }, 2, 2] },
+            ],
+          },
+        },
+      },
+    ]);
+
+    // ── Weekly revenue trend (last 8 weeks) ──
+    const eightWeeksAgo = new Date();
+    eightWeeksAgo.setDate(eightWeeksAgo.getDate() - 55);
+    eightWeeksAgo.setHours(0, 0, 0, 0);
+
+    const weeklyTrend = await orderModel.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: eightWeeksAgo },
+          status: "completed",
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $isoWeekYear: "$createdAt" },
+            week: { $isoWeek: "$createdAt" },
+          },
+          revenue: { $sum: "$price" },
+          orderCount: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.week": 1 } },
+      {
+        $project: {
+          _id: 0,
+          year: "$_id.year",
+          week: "$_id.week",
+          revenue: 1,
+          orderCount: 1,
+          label: {
+            $concat: ["Wk ", { $toString: "$_id.week" }],
+          },
+        },
+      },
+    ]);
+
+    return res.status(200).json({
+      message: "Admin dashboard stats fetched successfully",
+      data: {
+        totalOrders,
+        pendingOrders,
+        completedOrders,
+        totalWorkers,
+        totalBalance,
+        revenueTrend: {
+          monthly: monthlyTrend,
+          weekly: weeklyTrend,
+        },
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
 };

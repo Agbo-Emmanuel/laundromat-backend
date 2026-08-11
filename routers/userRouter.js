@@ -17,6 +17,8 @@ const {
   sendResetPassword,
   sendUserMessage,
   editUserAccount,
+  getWorkerDashboardStats,
+  getAdminDashboardStats,
 } = require("../controllers/userController");
 
 router.post("/auth/signup", signUp);
@@ -53,5 +55,7 @@ const authenticate = (req, res, next) => {
 };
 
 router.get("/getuser", authenticate, getUser);
+router.get("/worker/dashboard-stats", authenticate, getWorkerDashboardStats);
+router.get("/admin/dashboard-stats", authenticate, getAdminDashboardStats);
 
 module.exports = router;
