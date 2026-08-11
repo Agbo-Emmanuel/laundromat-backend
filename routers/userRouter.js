@@ -20,7 +20,7 @@ const {
   getWorkerDashboardStats,
   getAdminDashboardStats,
 } = require("../controllers/userController");
-const { getAllOrders } = require("../controllers/orderController");
+const { getAllOrders, createOrder } = require("../controllers/orderController");
 
 router.post("/auth/signup", signUp);
 router.post("/auth/login", login);
@@ -60,6 +60,7 @@ router.get("/worker/dashboard-stats", authenticate, getWorkerDashboardStats);
 router.get("/admin/dashboard-stats", authenticate, getAdminDashboardStats);
 
 //orders
+router.post("/create-order", authenticate, createOrder);
 router.get("/get-all-orders", getAllOrders);
 
 module.exports = router;

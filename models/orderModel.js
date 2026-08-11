@@ -1,6 +1,10 @@
 const mongoose = require("mongoose");
 
 const orderSchema = new mongoose.Schema({
+  orderCode: {
+    type: String,
+    required: true,
+  },
   customerName: {
     type: String,
     required: true,
@@ -27,7 +31,6 @@ const orderSchema = new mongoose.Schema({
   },
   pickupDate: {
     type: Date,
-    required: true,
   },
   status: {
     type: String,

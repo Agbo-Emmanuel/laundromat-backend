@@ -10,6 +10,38 @@ const {
   sendUserEmail,
 } = require("../utils/mailer");
 
+const crypto = require("crypto");
+
+// Generates a 6-character alphanumeric code (uppercase letters + digits)
+const generateOrderCode = () => {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let code = "";
+  const bytes = crypto.randomBytes(6);
+  for (let i = 0; i < 6; i++) {
+    code += chars[bytes[i] % chars.length];
+  }
+  return `ORD-${code}`;
+};
+
+// Ensures the generated code doesn't already exist in the DB
+const generateUniqueOrderCode = async () => {
+  let code;
+  let exists = true;
+  let attempts = 0;
+
+  while (exists && attempts < 5) {
+    code = generateOrderCode();
+    exists = await orderModel.exists({ orderCode: code });
+    attempts++;
+  }
+
+  if (exists) {
+    throw new Error("Could not generate a unique order code, please try again");
+  }
+
+  return code;
+};
+
 exports.createOrder = async (req, res) => {
   try {
     const {
@@ -22,38 +54,26 @@ exports.createOrder = async (req, res) => {
       pickupDate,
     } = req.body;
 
-    if (!customerName) {
-      return res.status(404).json({
-        message: "customer name is required",
-      });
-    }
-    if (!customerPhone) {
-      return res.status(404).json({
-        message: "customer phone is required",
-      });
-    }
-    if (!service) {
-      return res.status(404).json({
-        message: "service is required",
-      });
-    }
-    if (!description) {
-      return res.status(404).json({
-        message: "description is required",
-      });
-    }
-    if (!numberOfItems) {
-      return res.status(404).json({
-        message: "number of items is required",
-      });
-    }
-    if (!price) {
-      return res.status(404).json({
-        message: "price is required",
-      });
+    const requiredFields = {
+      customerName: "customer name",
+      customerPhone: "customer phone",
+      service: "service",
+      description: "description",
+      numberOfItems: "number of items",
+      price: "price",
+    };
+
+    for (const [field, label] of Object.entries(requiredFields)) {
+      if (!req.body[field]) {
+        return res.status(400).json({
+          message: `${label} is required`,
+        });
+      }
     }
 
-    // Create the order
+    const orderCode = await generateUniqueOrderCode();
+
+    // Create the order (create() already persists it, no need to call save() again)
     const order = await orderModel.create({
       customerName,
       customerPhone,
@@ -62,19 +82,13 @@ exports.createOrder = async (req, res) => {
       numberOfItems,
       price,
       pickupDate,
+      orderCode,
     });
 
-    // await sendEmail(
-    //   user.email,
-    //   "Welcome to BlackFinance",
-    //   "signUp",
-    //   placeholders,
-    // );
-    await order.save();
-
-    // Prepare user details for response
+    // Prepare order details for response
     const orderDetails = {
       _id: order._id,
+      orderCode: order.orderCode,
       customerName: order.customerName,
       customerPhone: order.customerPhone,
       service: order.service,
@@ -85,13 +99,12 @@ exports.createOrder = async (req, res) => {
       status: order.status,
     };
 
-    // Send success response
-    res.status(201).json({
-      message: `Welcome, ${order.customerName}. check your email for verification`,
+    return res.status(201).json({
+      message: `Order ${order.orderCode} has been created successfully`,
       data: orderDetails,
     });
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       message: err.message,
     });
   }
