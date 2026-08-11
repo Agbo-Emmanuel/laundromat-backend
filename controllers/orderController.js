@@ -96,3 +96,38 @@ exports.createOrder = async (req, res) => {
     });
   }
 };
+
+exports.getAllOrders = async (req, res) => {
+  try {
+    const { status } = req.query;
+
+    const allowedStatuses = [
+      "pending",
+      "completed",
+      "in-progress",
+      "awaiting-pickup",
+    ];
+
+    const filter = {};
+
+    if (status) {
+      if (!allowedStatuses.includes(status)) {
+        return res.status(400).json({
+          message: `Invalid status. Allowed values are: ${allowedStatuses.join(", ")}`,
+        });
+      }
+      filter.status = status;
+    }
+
+    const orders = await orderModel.find(filter);
+
+    res.status(200).json({
+      message: "All orders fetched successfully",
+      data: orders,
+    });
+  } catch (err) {
+    res.status(500).json({
+      message: err.message,
+    });
+  }
+};
