@@ -26,6 +26,7 @@ const {
   updateOrderStatus,
   getOrderById,
 } = require("../controllers/orderController");
+const { handleWhatsapp } = require("../controllers/whatsappController");
 
 router.post("/auth/signup", signUp);
 router.post("/auth/login", login);
@@ -69,5 +70,8 @@ router.post("/create-order", authenticate, createOrder);
 router.get("/orders", getAllOrders);
 router.get("/orders/:orderId", authenticate, getOrderById);
 router.patch("/orders/:orderId", authenticate, updateOrderStatus);
+
+//whatsapp
+router.post("/whatsapp", handleWhatsapp);
 
 module.exports = router;
