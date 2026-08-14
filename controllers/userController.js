@@ -723,6 +723,14 @@ exports.getAdminDashboardStats = async (req, res) => {
     eightWeeksAgo.setDate(eightWeeksAgo.getDate() - 55);
     eightWeeksAgo.setHours(0, 0, 0, 0);
 
+    // Human-readable labels for each status value, used to backfill
+    // zero-count buckets so the pie chart always shows all 3 slices.
+    const STATUS_LABELS = {
+      pending: "Pending",
+      "awaiting-pickup": "Awaiting Pickup",
+      completed: "Completed",
+    };
+
     // ── Run everything concurrently instead of sequentially ──
     const [
       totalOrders,
@@ -733,6 +741,7 @@ exports.getAdminDashboardStats = async (req, res) => {
       pendingAmountAgg,
       monthlyTrend,
       weeklyTrend,
+      statusBreakdownAgg,
     ] = await Promise.all([
       orderModel.countDocuments(),
       orderModel.countDocuments({ status: "pending" }),
@@ -751,11 +760,13 @@ exports.getAdminDashboardStats = async (req, res) => {
         { $group: { _id: null, total: { $sum: "$price" } } },
       ]),
 
-      // monthly revenue trend (last 12 months)
+      // monthly revenue trend (last 12 months) — now filters and
+      // groups by completedAt consistently (was mixing createdAt
+      // in $match with completedAt in $group, which is a bug).
       orderModel.aggregate([
         {
           $match: {
-            createdAt: { $gte: twelveMonthsAgo },
+            completedAt: { $gte: twelveMonthsAgo },
             status: "completed",
           },
         },
@@ -807,11 +818,11 @@ exports.getAdminDashboardStats = async (req, res) => {
         },
       ]),
 
-      // weekly revenue trend (last 8 weeks)
+      // weekly revenue trend (last 8 weeks) — same completedAt fix
       orderModel.aggregate([
         {
           $match: {
-            createdAt: { $gte: eightWeeksAgo },
+            completedAt: { $gte: eightWeeksAgo },
             status: "completed",
           },
         },
@@ -837,12 +848,31 @@ exports.getAdminDashboardStats = async (req, res) => {
           },
         },
       ]),
+
+      // order status breakdown — count of orders per status, all-time
+      orderModel.aggregate([
+        { $group: { _id: "$status", count: { $sum: 1 } } },
+      ]),
     ]);
 
     const totalBalance =
       completedAmountAgg.length > 0 ? completedAmountAgg[0].total : 0;
     const pendingAmounts =
       pendingAmountAgg.length > 0 ? pendingAmountAgg[0].total : 0;
+
+    // Merge aggregation results into a fixed-order array covering all
+    // 3 statuses, defaulting missing ones to 0 so the pie chart always
+    // renders 3 slices (instead of silently dropping empty statuses).
+    const countsByStatus = statusBreakdownAgg.reduce((acc, entry) => {
+      acc[entry._id] = entry.count;
+      return acc;
+    }, {});
+
+    const orderStatusBreakdown = Object.keys(STATUS_LABELS).map((status) => ({
+      status,
+      label: STATUS_LABELS[status],
+      count: countsByStatus[status] || 0,
+    }));
 
     return res.status(200).json({
       message: "Admin dashboard stats fetched successfully",
@@ -857,6 +887,7 @@ exports.getAdminDashboardStats = async (req, res) => {
           monthly: monthlyTrend,
           weekly: weeklyTrend,
         },
+        orderStatusBreakdown,
       },
     });
   } catch (err) {
