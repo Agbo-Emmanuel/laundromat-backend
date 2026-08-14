@@ -713,108 +713,136 @@ exports.getAdminDashboardStats = async (req, res) => {
       return res.status(404).json({ message: "Admin not found" });
     }
 
-    // Core counts
-    const [totalOrders, pendingOrders, completedOrders, totalWorkers] =
-      await Promise.all([
-        orderModel.countDocuments(),
-        orderModel.countDocuments({ status: "pending" }),
-        orderModel.countDocuments({ status: "completed" }),
-        myModel.countDocuments({ role: "worker" }),
-      ]);
-
-    // Total balance across all workers
-    const balanceAgg = await myModel.aggregate([
-      { $match: { role: "worker" } },
-      { $group: { _id: null, totalBalance: { $sum: "$accntBalance" } } },
-    ]);
-    const totalBalance = balanceAgg.length > 0 ? balanceAgg[0].totalBalance : 0;
-
-    // ── Monthly revenue trend (last 12 months) ──
+    // ── Date boundaries (computed once, reused below) ──
     const twelveMonthsAgo = new Date();
     twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
     twelveMonthsAgo.setDate(1);
     twelveMonthsAgo.setHours(0, 0, 0, 0);
 
-    const monthlyTrend = await orderModel.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: twelveMonthsAgo },
-          status: "completed",
-        },
-      },
-      {
-        $group: {
-          _id: {
-            year: { $year: "$createdAt" },
-            month: { $month: "$createdAt" },
-          },
-          revenue: { $sum: "$price" },
-          orderCount: { $sum: 1 },
-        },
-      },
-      { $sort: { "_id.year": 1, "_id.month": 1 } },
-      {
-        $project: {
-          _id: 0,
-          year: "$_id.year",
-          month: "$_id.month",
-          revenue: 1,
-          orderCount: 1,
-          label: {
-            $concat: [
-              {
-                $arrayElemAt: [
-                  [
-                    "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-                  ],
-                  "$_id.month",
-                ],
-              },
-              " ",
-              { $substr: [{ $toString: "$_id.year" }, 2, 2] },
-            ],
-          },
-        },
-      },
-    ]);
-
-    // ── Weekly revenue trend (last 8 weeks) ──
     const eightWeeksAgo = new Date();
     eightWeeksAgo.setDate(eightWeeksAgo.getDate() - 55);
     eightWeeksAgo.setHours(0, 0, 0, 0);
 
-    const weeklyTrend = await orderModel.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: eightWeeksAgo },
-          status: "completed",
-        },
-      },
-      {
-        $group: {
-          _id: {
-            year: { $isoWeekYear: "$createdAt" },
-            week: { $isoWeek: "$createdAt" },
+    // ── Run everything concurrently instead of sequentially ──
+    const [
+      totalOrders,
+      pendingOrders,
+      completedOrders,
+      totalWorkers,
+      completedAmountAgg,
+      pendingAmountAgg,
+      monthlyTrend,
+      weeklyTrend,
+    ] = await Promise.all([
+      orderModel.countDocuments(),
+      orderModel.countDocuments({ status: "pending" }),
+      orderModel.countDocuments({ status: "completed" }),
+      myModel.countDocuments({ role: "worker" }),
+
+      // total balance = sum of price for completed orders
+      orderModel.aggregate([
+        { $match: { status: "completed" } },
+        { $group: { _id: null, total: { $sum: "$price" } } },
+      ]),
+
+      // pending amount = sum of price for pending orders
+      orderModel.aggregate([
+        { $match: { status: "pending" } },
+        { $group: { _id: null, total: { $sum: "$price" } } },
+      ]),
+
+      // monthly revenue trend (last 12 months)
+      orderModel.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: twelveMonthsAgo },
+            status: "completed",
           },
-          revenue: { $sum: "$price" },
-          orderCount: { $sum: 1 },
         },
-      },
-      { $sort: { "_id.year": 1, "_id.week": 1 } },
-      {
-        $project: {
-          _id: 0,
-          year: "$_id.year",
-          week: "$_id.week",
-          revenue: 1,
-          orderCount: 1,
-          label: {
-            $concat: ["Wk ", { $toString: "$_id.week" }],
+        {
+          $group: {
+            _id: {
+              year: { $year: "$createdAt" },
+              month: { $month: "$createdAt" },
+            },
+            revenue: { $sum: "$price" },
+            orderCount: { $sum: 1 },
           },
         },
-      },
+        { $sort: { "_id.year": 1, "_id.month": 1 } },
+        {
+          $project: {
+            _id: 0,
+            year: "$_id.year",
+            month: "$_id.month",
+            revenue: 1,
+            orderCount: 1,
+            label: {
+              $concat: [
+                {
+                  $arrayElemAt: [
+                    [
+                      "",
+                      "Jan",
+                      "Feb",
+                      "Mar",
+                      "Apr",
+                      "May",
+                      "Jun",
+                      "Jul",
+                      "Aug",
+                      "Sep",
+                      "Oct",
+                      "Nov",
+                      "Dec",
+                    ],
+                    "$_id.month",
+                  ],
+                },
+                " ",
+                { $substr: [{ $toString: "$_id.year" }, 2, 2] },
+              ],
+            },
+          },
+        },
+      ]),
+
+      // weekly revenue trend (last 8 weeks)
+      orderModel.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: eightWeeksAgo },
+            status: "completed",
+          },
+        },
+        {
+          $group: {
+            _id: {
+              year: { $isoWeekYear: "$createdAt" },
+              week: { $isoWeek: "$createdAt" },
+            },
+            revenue: { $sum: "$price" },
+            orderCount: { $sum: 1 },
+          },
+        },
+        { $sort: { "_id.year": 1, "_id.week": 1 } },
+        {
+          $project: {
+            _id: 0,
+            year: "$_id.year",
+            week: "$_id.week",
+            revenue: 1,
+            orderCount: 1,
+            label: { $concat: ["Wk ", { $toString: "$_id.week" }] },
+          },
+        },
+      ]),
     ]);
+
+    const totalBalance =
+      completedAmountAgg.length > 0 ? completedAmountAgg[0].total : 0;
+    const pendingAmounts =
+      pendingAmountAgg.length > 0 ? pendingAmountAgg[0].total : 0;
 
     return res.status(200).json({
       message: "Admin dashboard stats fetched successfully",
@@ -824,6 +852,7 @@ exports.getAdminDashboardStats = async (req, res) => {
         completedOrders,
         totalWorkers,
         totalBalance,
+        pendingAmounts,
         revenueTrend: {
           monthly: monthlyTrend,
           weekly: weeklyTrend,
