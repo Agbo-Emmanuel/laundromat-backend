@@ -41,6 +41,9 @@ const orderSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  completedAt: {
+    type: Date,
+  },
 });
 
 const orderModel = mongoose.model("Order", orderSchema);

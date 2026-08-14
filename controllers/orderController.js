@@ -210,17 +210,33 @@ exports.updateOrderStatus = async (req, res) => {
       });
     }
 
-    const order = await orderModel.findByIdAndUpdate(
-      orderId,
-      { status },
-      { new: true, runValidators: true },
-    );
+    // Fetch the current order first so we know its existing status
+    // before deciding whether completedAt should change.
+    const existingOrder = await orderModel.findById(orderId);
 
-    if (!order) {
+    if (!existingOrder) {
       return res.status(404).json({
         message: "order not found",
       });
     }
+
+    // Build the update payload dynamically:
+    // - Only stamp completedAt the moment status transitions INTO "completed"
+    //   (not on every save while it's already completed).
+    // - If a completed order is reverted to a non-completed status,
+    //   clear completedAt so it doesn't linger and skew the revenue trend.
+    const update = { status };
+
+    if (status === "completed" && existingOrder.status !== "completed") {
+      update.completedAt = new Date();
+    } else if (status !== "completed" && existingOrder.status === "completed") {
+      update.completedAt = null;
+    }
+
+    const order = await orderModel.findByIdAndUpdate(orderId, update, {
+      new: true,
+      runValidators: true,
+    });
 
     return res.status(200).json({
       message: `order status updated to ${status} successfully`,

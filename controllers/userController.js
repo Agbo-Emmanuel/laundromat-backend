@@ -762,8 +762,8 @@ exports.getAdminDashboardStats = async (req, res) => {
         {
           $group: {
             _id: {
-              year: { $year: "$createdAt" },
-              month: { $month: "$createdAt" },
+              year: { $year: "$completedAt" },
+              month: { $month: "$completedAt" },
             },
             revenue: { $sum: "$price" },
             orderCount: { $sum: 1 },
@@ -818,8 +818,8 @@ exports.getAdminDashboardStats = async (req, res) => {
         {
           $group: {
             _id: {
-              year: { $isoWeekYear: "$createdAt" },
-              week: { $isoWeek: "$createdAt" },
+              year: { $isoWeekYear: "$completedAt" },
+              week: { $isoWeek: "$completedAt" },
             },
             revenue: { $sum: "$price" },
             orderCount: { $sum: 1 },
